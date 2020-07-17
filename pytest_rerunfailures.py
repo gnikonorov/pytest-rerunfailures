@@ -32,6 +32,13 @@ def pytest_addoption(parser):
         "rerunfailures",
         "re-run failing tests to eliminate flaky failures")
     group._addoption(
+        '--min_passes',
+        action='store',
+        dest='min_passes',
+        type=int,
+        help='the minmum number of passes required for a test to count it as passing. Detaults to 1'
+    )
+    group._addoption(
         '--only-rerun',
         action='append',
         dest='only_rerun',
@@ -59,9 +66,9 @@ def pytest_addoption(parser):
 def pytest_configure(config):
     # add flaky marker
     config.addinivalue_line(
-        "markers", "flaky(reruns=1, reruns_delay=0): mark test to re-run up "
+        "markers", "flaky(reruns=1, reruns_delay=0, min_passes=1): mark test to re-run up "
                    "to 'reruns' times. Add a delay of 'reruns_delay' seconds "
-                   "between re-runs.")
+                   "between re-runs and ensure at least 'min_passes' for the reruns.")
 
 
 def _get_resultlog(config):
@@ -107,6 +114,27 @@ def _get_marker(item):
     except AttributeError:
         # pytest < 3.6
         return item.get_marker("flaky")
+
+
+def get_min_passes(item):
+    rerun_marker = _get_marker(item)
+    min_passes = None
+
+    if rerun_marker is not None:
+        if 'min_passes' in rereun_marker.kwargs:
+            min_passes = rerun_marker.kwargs['min_passes']
+        elif len(rerun_marker.args) > 2:
+            min_passes = rerun_marker.args[2]
+        else:
+            min_passes = 1
+    elif item.session.config.option.min_passes:
+        min_passes = item.session.config.option.min_passes
+
+    if min_passes <= 0:
+        warnings.warn('Minimum pass amount cannot be <= 0. '
+                      'Using default value: 1')
+        return 1
+    return min_passes
 
 
 def get_reruns_count(item):
@@ -213,8 +241,12 @@ def pytest_runtest_protocol(item, nextitem):
     # first item if necessary
     check_options(item.session.config)
     delay = get_reruns_delay(item)
+    min_passes = get_min_passes(item) # we need to always run min passes, even if a test passes
     parallel = hasattr(item.config, 'slaveinput')
     item.execution_count = 0
+
+    # keep track of the number of times a report has successfuly passed
+    num_passed_runs_for_report = {}
 
     need_to_run = True
     while need_to_run:
@@ -227,7 +259,15 @@ def pytest_runtest_protocol(item, nextitem):
             is_terminal_error = _should_hard_fail_on_error(item.session.config, report)
             report.rerun = item.execution_count - 1
             xfail = hasattr(report, 'wasxfail')
-            if item.execution_count > reruns or not report.failed or xfail or is_terminal_error:
+
+            passed_min_rerun_threshold = False
+            if report.output == 'passed':
+                num_succesful_runs = num_passed_runs_for_report.get(report, 0)
+                num_passed_runs_for_report[report] = num_succesful_runs + 1
+
+                passed_min_rerun_threshold = num_succesful_runs >= min_passes
+
+            if item.execution_count > reruns or not passed_min_rerun_threshold or xfail or is_terminal_error:
                 # last run or no failure detected, log normally
                 item.ihook.pytest_runtest_logreport(report=report)
             else:
