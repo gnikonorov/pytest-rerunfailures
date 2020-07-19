@@ -437,3 +437,22 @@ def test_only_rerun_flag(testdir, file_text, only_rerun_texts, should_rerun):
         pytest_args.extend(['--only-rerun', only_rerun_text])
     result = testdir.runpytest(*pytest_args)
     assert_outcomes(result, passed=num_passed, failed=num_failed, rerun=num_reruns_actual)
+
+@pytest.mark.parametrize(
+        "file_text, only_rerun_texts, should_rerun",
+        [
+            ('def test_always_passes(): assert True', 0),
+            ('def test_always_passes(): assert True', -1),
+            ('def test_always_passes(): assert True', -123),
+        ]
+)
+def test_min_passes_flag_converts_values_less_than_one_to_one(testdir, file_text, min_passes_argument):
+    warnings_text = a
+    result = testdir.runpytest('--reruns', '2', '--min_passes' min_passes_argument)
+    result.stderr.fnmatch_lines_random('ERROR: --reruns incompatible with --pdb')
+
+def test_min_passes_flag():
+    pass
+
+def test_min_passes_marker():
+    pass
