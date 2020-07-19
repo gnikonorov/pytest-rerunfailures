@@ -121,12 +121,10 @@ def get_min_passes(item, reruns):
     min_passes = None
 
     if rerun_marker is not None:
-        if 'min_passes' in rereun_marker.kwargs:
+        if 'min_passes' in rerun_marker.kwargs:
             min_passes = rerun_marker.kwargs['min_passes']
         elif len(rerun_marker.args) > 2:
             min_passes = rerun_marker.args[2]
-        else:
-            min_passes = 1
     elif item.session.config.option.min_passes is not None:
         min_passes = item.session.config.option.min_passes
 
@@ -273,7 +271,7 @@ def pytest_runtest_protocol(item, nextitem):
                 if min_passes is not None:
                     enough_passes_attained = item.successful_passes == min_passes
 
-                if not enough_passes_attained:
+                if min_passes and not enough_passes_attained:
                     warnings.warn("Not enough test passes. Had {} passes but wanted {}.".format(item.successful_passes, min_passes))
                     report.outcome = 'failed'
                     report.not_enough_passes = 1

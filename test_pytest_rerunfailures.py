@@ -19,7 +19,7 @@ def temporary_failure(count=1):
 
 
 def assert_outcomes(result, passed=1, skipped=0, failed=0, error=0, xfailed=0,
-                    xpassed=0, rerun=0, warning=0):
+                    xpassed=0, rerun=0, warnings=0):
     outcomes = result.parseoutcomes()
     assert outcomes.get('passed', 0) == passed
     assert outcomes.get('skipped', 0) == skipped
@@ -27,7 +27,7 @@ def assert_outcomes(result, passed=1, skipped=0, failed=0, error=0, xfailed=0,
     assert outcomes.get('xfailed', 0) == xfailed
     assert outcomes.get('xpassed', 0) == xpassed
     assert outcomes.get('rerun', 0) == rerun
-    assert outcomes.get('warning', 0) == warning
+    assert outcomes.get('warning', 0) == warnings
 
 
 def test_error_when_run_with_pdb(testdir):
@@ -238,12 +238,14 @@ def test_reruns_with_delay(testdir, delay_time):
     result = testdir.runpytest('--reruns', '3',
                                '--reruns-delay', str(delay_time))
 
+    num_warnings = 1 if delay_time < 0 else 0
+
     if delay_time < 0:
         delay_time = 0
 
     time.sleep.assert_called_with(delay_time)
 
-    assert_outcomes(result, passed=0, failed=1, rerun=3)
+    assert_outcomes(result, passed=0, failed=1, rerun=3, warnings=num_warnings)
 
 
 @pytest.mark.parametrize('delay_time', [-1, 0, 0.0, 1, 2.5])
