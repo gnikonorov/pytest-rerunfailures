@@ -19,7 +19,7 @@ def temporary_failure(count=1):
 
 
 def assert_outcomes(result, passed=1, skipped=0, failed=0, error=0, xfailed=0,
-                    xpassed=0, rerun=0):
+                    xpassed=0, rerun=0, warning=0):
     outcomes = result.parseoutcomes()
     assert outcomes.get('passed', 0) == passed
     assert outcomes.get('skipped', 0) == skipped
@@ -27,6 +27,7 @@ def assert_outcomes(result, passed=1, skipped=0, failed=0, error=0, xfailed=0,
     assert outcomes.get('xfailed', 0) == xfailed
     assert outcomes.get('xpassed', 0) == xpassed
     assert outcomes.get('rerun', 0) == rerun
+    assert outcomes.get('warning', 0) == warning
 
 
 def test_error_when_run_with_pdb(testdir):
@@ -408,6 +409,7 @@ def test_pytest_runtest_logfinish_is_called(testdir):
     result = testdir.runpytest('--reruns', '1', '-s')
     result.stdout.fnmatch_lines(hook_message)
 
+
 @pytest.mark.parametrize(
         "file_text, only_rerun_texts, should_rerun",
         [
@@ -438,21 +440,40 @@ def test_only_rerun_flag(testdir, file_text, only_rerun_texts, should_rerun):
     result = testdir.runpytest(*pytest_args)
     assert_outcomes(result, passed=num_passed, failed=num_failed, rerun=num_reruns_actual)
 
-@pytest.mark.parametrize(
-        "file_text, only_rerun_texts, should_rerun",
-        [
-            ('def test_always_passes(): assert True', 0),
-            ('def test_always_passes(): assert True', -1),
-            ('def test_always_passes(): assert True', -123),
-        ]
-)
-def test_min_passes_flag_converts_values_less_than_one_to_one(testdir, file_text, min_passes_argument):
-    warnings_text = a
-    result = testdir.runpytest('--reruns', '2', '--min_passes' min_passes_argument)
-    result.stderr.fnmatch_lines_random('ERROR: --reruns incompatible with --pdb')
+
+@pytest.mark.parametrize('min_passes_argument', [0, -1])
+def test_min_passes_flag_converts_values_less_than_one_to_one(testdir, min_passes_argument):
+    file_text = 'def test_always_passes(): assert True'
+    testdir.makepyfile(file_text)
+
+    pytest_args = ['--reruns', '2', '--min-passes', str(min_passes_argument)]
+    result = testdir.runpytest(*pytest_args)
+
+    expected_warning_message = 'UserWarning: Minimum pass amount cannot be <= 0. Using default value 1'
+    assert_outcomes(result, passed=1, failed=0, rerun=0, warning=1)
+    result.stdout.fnmatch_lines(expected_warning_message)
+
+
+
+def test_min_passes_flag_converts_values_greater_than_rerurns_to_reruns(testdir):
+    file_text = 'def test_always_passes(): assert True'
+    testdir.makepyfile(file_text)
+
+    min_passes_argument = 2
+    num_reruns = 6
+
+    pytest_args = ['--reruns', str(num_reruns), '--min-passes', str(min_passes_argument)]
+    result = testdir.runpytest(*pytest_args)
+
+    expected_warning_message = "UserWarning: Minimum pass amount cannot be > reruns amount. Using rerun amount {}".format(num_reruns)
+    assert_outcomes(result, passed=1, failed=0, rerun=0)
+    result.stdout.fnmatch_lines(expected_warning_message)
+
+
 
 def test_min_passes_flag():
     pass
+
 
 def test_min_passes_marker():
     pass

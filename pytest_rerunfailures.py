@@ -116,7 +116,7 @@ def _get_marker(item):
         return item.get_marker("flaky")
 
 
-def get_min_passes(item):
+def get_min_passes(item, reruns):
     rerun_marker = _get_marker(item)
     min_passes = None
 
@@ -130,10 +130,16 @@ def get_min_passes(item):
     elif item.session.config.option.min_passes is not None:
         min_passes = item.session.config.option.min_passes
 
-    if min_passes is not None and min_passes <= 0:
-        warnings.warn('Minimum pass amount cannot be <= 0. '
-                      'Using default value: 1')
-        return 1
+    if min_passes is not None:
+        if min_passes <= 0:
+            warnings.warn('Minimum pass amount cannot be <= 0. '
+                          'Using default value 1')
+            return 1
+
+        if min_passes > reruns:
+            warnings.warn('Minimum pass amount cannot be > reruns amount. '
+                          "Using rerun amount {}".format(reruns))
+            return reruns
 
     return min_passes
 
@@ -226,8 +232,6 @@ def _should_hard_fail_on_error(session_config, report):
     return True
 
 
-# NOTE: This will run once per item
-# the way it is written, we go back to first report on a failure
 def pytest_runtest_protocol(item, nextitem):
     """
     Note: when teardown fails, two reports are generated for the case, one for
@@ -243,7 +247,7 @@ def pytest_runtest_protocol(item, nextitem):
     # first item if necessary
     check_options(item.session.config)
     delay = get_reruns_delay(item)
-    min_passes = get_min_passes(item) # we need to always run min passes, even if a test passes
+    min_passes = get_min_passes(item, reruns)
     parallel = hasattr(item.config, 'slaveinput')
     item.execution_count = 0
     item.successful_passes = 0
@@ -258,25 +262,27 @@ def pytest_runtest_protocol(item, nextitem):
         reports = runtestprotocol(item, nextitem=nextitem, log=False)
 
         for report in reports:  # 3 reports: setup, call, teardown
-            warnings.warn(str(report))
             is_terminal_error = _should_hard_fail_on_error(item.session.config, report)
             report.rerun = item.execution_count - 1
             xfail = hasattr(report, 'wasxfail')
 
-            enough_passes_attained = not report.failed
-            if min_passes is not None:
-                enough_passes_attained = item.successful_passes == min_passes
-
-            # under not report.failed this would print out reruns,
-            # eith enough_passes_attained, they are not
             if xfail or is_terminal_error:
                 item.ihook.pytest_runtest_logreport(report=report)
-            elif not report.failed and enough_passes_attained:
-                item.ihook.pytest_runtest_logreport(report=report)
             elif is_last_run:
-                #if not enough_passes_attained:
-                #    report.outcome = 'failed'
-                warnings.warn(str(report))
+                enough_passes_attained = not report.failed
+                if min_passes is not None:
+                    enough_passes_attained = item.successful_passes == min_passes
+
+                if not enough_passes_attained:
+                    warnings.warn("Not enough test passes. Had {} passes but wanted {}.".format(item.successful_passes, min_passes))
+                    report.outcome = 'failed'
+                    report.not_enough_passes = 1
+                    item.ihook.pytest_runtest_logreport(report=report)
+                    need_to_run = False
+                    break
+                else:
+                    item.ihook.pytest_runtest_logreport(report=report)
+            elif not report.failed:
                 item.ihook.pytest_runtest_logreport(report=report)
             else:
                 # failure detected and reruns not exhausted, since i < reruns
@@ -293,7 +299,6 @@ def pytest_runtest_protocol(item, nextitem):
 
                 break  # trigger rerun
         else:
-            need_to_run = False
             if min_passes is None:
                 need_to_run = False
             else:
